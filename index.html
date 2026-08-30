@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>SIGHT</title>
+<style>
+  :root{
+    --bg: #05070a;
+    --panel: #0b0f14;
+    --line: #1c2530;
+    --cyan: #4fd8e0;
+    --cyan-dim: #2a5a5e;
+    --amber: #ffb454;
+    --text: #dbe6ea;
+    --text-dim: #5f7480;
+    --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', ui-monospace, monospace;
+    overflow: hidden;
+  }
+  #app {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  #camWrap { position: absolute; inset: 0; background: #000; }
+  #cam { width: 100%; height: 100%; object-fit: cover; filter: saturate(0.9) contrast(1.05) brightness(0.95); }
+  #canvas { display: none; }
+  #hudOverlay {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.65) 100%);
+  }
+  #scanline {
+    position: absolute; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    opacity: 0; box-shadow: 0 0 12px 2px var(--cyan);
+  }
+  #scanline.active { animation: sweep 1.4s linear infinite; opacity: 0.9; }
+  @keyframes sweep { 0% { top: 10%; } 50% { top: 88%; } 100% { top: 10%; } }
+  .bracket { position: absolute; width: 28px; height: 28px; border: 2px solid var(--cyan-dim); opacity: 0.8; }
+  .bracket.tl { top: 14px; left: 14px; border-right:none; border-bottom:none; }
+  .bracket.tr { top: 14px; right: 14px; border-left:none; border-bottom:none; }
+  .bracket.bl { bottom: 14px; left: 14px; border-right:none; border-top:none; }
+  .bracket.br { bottom: 14px; right: 14px; border-left:none; border-top:none; }
+  #statusBar {
+    position: relative; z-index: 5; display: flex; align-items: center; justify-content: space-between;
+    padding: max(14px, env(safe-area-inset-top)) 18px 10px 18px;
+    font-size: 11px; letter-spacing: 0.12em; color: var(--text-dim);
+  }
+  #statusBar .brand { color: var(--cyan); font-weight: bold; }
+  #statusDot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim); margin-right: 6px; vertical-align: middle;
+  }
+  #statusDot.live { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+  #statusDot.listening { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 1s infinite; }
+  #statusDot.error { background: var(--danger); }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+  #captionArea {
+    position: relative; z-index: 5; margin-top: auto; padding: 0 16px 14px 16px;
+    display: flex; flex-direction: column; gap: 8px; max-height: 40vh; overflow-y: auto;
+  }
+  .bubble {
+    max-width: 92%; padding: 9px 13px; border-radius: 3px; font-size: 14px; line-height: 1.4;
+    backdrop-filter: blur(6px); border: 1px solid var(--line);
+  }
+  .bubble.q { align-self: flex-end; background: rgba(79, 216, 224, 0.08); border-color: var(--cyan-dim); color: var(--cyan); }
+  .bubble.a { align-self: flex-start; background: rgba(11, 15, 20, 0.85); border-color: var(--line); color: var(--text); }
+  .bubble .tag { display: block; font-size: 9px; letter-spacing: 0.15em; color: var(--text-dim); margin-bottom: 3px; }
+  #controlBar {
+    position: relative; z-index: 6; display: flex; align-items: center; justify-content: center; gap: 22px;
+    padding: 16px 18px max(20px, env(safe-area-inset-bottom)) 18px;
+    background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
+  }
+  #askBtn {
+    width: 76px; height: 76px; border-radius: 50%; border: 2px solid var(--cyan);
+    background: rgba(79,216,224,0.08); color: var(--cyan);
+    display: flex; align-items: center; justify-content: center; font-size: 26px;
+    cursor: pointer; transition: transform 0.15s ease, background 0.15s ease; user-select: none;
+  }
+  #askBtn:active { transform: scale(0.94); background: rgba(79,216,224,0.2); }
+  #askBtn.busy { border-color: var(--amber); color: var(--amber); animation: pulse 1s infinite; pointer-events: none; }
+  #askBtn.err { border-color: var(--danger); color: var(--danger); }
+  #hint {
+    position: absolute; bottom: 108px; left: 0; right: 0; text-align: center;
+    font-size: 10px; letter-spacing: 0.1em; color: var(--text-dim); z-index: 6; pointer-events: none;
+  }
+  #startScreen {
+    position: absolute; inset: 0; z-index: 20; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 32px;
+  }
+  #startScreen h1 { color: var(--cyan); font-size: 22px; letter-spacing: 0.3em; margin: 0 0 6px 0; font-weight: normal; }
+  #startScreen p { color: var(--text-dim); font-size: 13px; line-height: 1.6; max-width: 320px; margin: 0 0 26px 0; }
+  #startBtn {
+    padding: 13px 34px; background: transparent; border: 1px solid var(--cyan); color: var(--cyan);
+    font-family: inherit; font-size: 13px; letter-spacing: 0.15em; cursor: pointer;
+  }
+  #startBtn:active { background: rgba(79,216,224,0.15); }
+  #errMsg { margin-top: 18px; color: var(--danger); font-size: 12px; max-width: 300px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="startScreen">
+    <h1>S I G H T</h1>
+    <p>Point your phone at something and ask about it out loud.<br/>Works over hotspot &mdash; each question uses well under 1MB.</p>
+    <button id="startBtn">ACTIVATE</button>
+    <div id="errMsg"></div>
+  </div>
+  <div id="camWrap">
+    <video id="cam" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div id="hudOverlay">
+      <div class="bracket tl"></div>
+      <div class="bracket tr"></div>
+      <div class="bracket bl"></div>
+      <div class="bracket br"></div>
+      <div id="scanline"></div>
+    </div>
+  </div>
+  <div id="statusBar">
+    <span><span id="statusDot"></span><span class="brand">SIGHT</span></span>
+    <span id="statusText">IDLE</span>
+  </div>
+  <div id="hint">HOLD BUTTON &amp; SPEAK YOUR QUESTION</div>
+  <div id="captionArea"></div>
+  <div id="controlBar">
+    <div id="askBtn">&#9679;</div>
+  </div>
+</div>
+<script>
+(function(){
+  const startScreen = document.getElementById('startScreen');
+  const startBtn = document.getElementById('startBtn');
+  const errMsg = document.getElementById('errMsg');
+  const cam = document.getElementById('cam');
+  const canvas = document.getElementById('canvas');
+  const askBtn = document.getElementById('askBtn');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const scanline = document.getElementById('scanline');
+  const captionArea = document.getElementById('captionArea');
+  const hint = document.getElementById('hint');
+
+  let recognition = null;
+  let recognizing = false;
+  let stream = null;
+
+  function setStatus(mode, label){
+    statusDot.className = mode || '';
+    statusText.textContent = label || 'IDLE';
+  }
+
+  function addBubble(kind, text){
+    const b = document.createElement('div');
+    b.className = 'bubble ' + kind;
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = kind === 'q' ? 'YOU ASKED' : 'SIGHT';
+    b.appendChild(tag);
+    const body = document.createElement('div');
+    body.textContent = text;
+    b.appendChild(body);
+    captionArea.appendChild(b);
+    captionArea.scrollTop = captionArea.scrollHeight;
+    while (captionArea.children.length > 6) {
+      captionArea.removeChild(captionArea.firstChild);
+    }
+  }
+
+  async function startCamera(){
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    });
+    cam.srcObject = stream;
+    await cam.play();
+  }
+
+  function captureFrameBase64(){
+    const w = cam.videoWidth || 640;
+    const h = cam.videoHeight || 480;
+    const maxDim = 640;
+    const scale = Math.min(1, maxDim / Math.max(w, h));
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(cam, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+  }
+
+  function speak(text){
+    try {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1.02;
+      utter.pitch = 1.0;
+      window.speechSynthesis.speak(utter);
+    } catch(e){}
+  }
+
+  async function askClaude(question, imageB64){
+    const body = {
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: imageB64 } },
+            { type: "text", text:
+              "You are a spoken visual assistant, like Jarvis. The user is looking through a camera and asked: \"" +
+              question +
+              "\". Answer their question directly based on the image. Keep it concise (1-3 sentences) and conversational, since it will be read aloud. Do not describe the whole image unless asked — just answer the question."
+            }
+          ]
+        }
+      ]
+    };
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      throw new Error("Request failed: " + res.status);
+    }
+    const data = await res.json();
+    const textBlock = (data.content || []).find(c => c.type === 'text');
+    return textBlock ? textBlock.text : "I didn't get a clear answer back — try again.";
+  }
+
+  function initRecognition(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    const r = new SR();
+    r.lang = 'en-US';
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+    return r;
+  }
+
+  async function handleAsk(){
+    if (recognizing) return;
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      const q = window.prompt("Speech recognition isn't supported here. Type your question:");
+      if (q) runPipeline(q);
+      return;
+    }
+
+    recognition = initRecognition();
+    recognizing = true;
+    setStatus('listening', 'LISTENING');
+    hint.textContent = 'LISTENING...';
+    askBtn.classList.add('busy');
+
+    recognition.onresult = (e) => {
+      const q = e.results[0][0].transcript;
+      runPipeline(q);
+    };
+    recognition.onerror = () => {
+      recognizing = false;
+      askBtn.classList.remove('busy');
+      askBtn.classList.add('err');
+      setStatus('error', 'MIC ERROR');
+      hint.textContent = 'HOLD BUTTON & SPEAK YOUR QUESTION';
+      setTimeout(() => { askBtn.classList.remove('err'); setStatus('live','READY'); }, 1500);
+    };
+    recognition.onend = () => {
+      recognizing = false;
+    };
+
+    recognition.start();
+  }
+
+  async function runPipeline(question){
+    addBubble('q', question);
+    setStatus('listening', 'THINKING');
+    hint.textContent = 'ANALYZING...';
+    scanline.classList.add('active');
+    askBtn.classList.add('busy');
+
+    try {
+      const imageB64 = captureFrameBase64();
+      const answer = await askClaude(question, imageB64);
+      addBubble('a', answer);
+      speak(answer);
+      setStatus('live', 'READY');
+    } catch(err) {
+      addBubble('a', 'Something went wrong reaching the assistant. Try again.');
+      setStatus('error', 'ERROR');
+    } finally {
+      scanline.classList.remove('active');
+      askBtn.classList.remove('busy');
+      hint.textContent = 'HOLD BUTTON & SPEAK YOUR QUESTION';
+    }
+  }
+
+  askBtn.addEventListener('click', handleAsk);
+
+  startBtn.addEventListener('click', async () => {
+    try {
+      await startCamera();
+      startScreen.style.display = 'none';
+      setStatus('live', 'READY');
+    } catch(e) {
+      errMsg.textContent = 'Could not access camera: ' + e.message + '. Check browser permissions.';
+    }
+  });
+})();
+</script>
+</body>
+</html>
